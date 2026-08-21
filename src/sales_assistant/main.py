@@ -36,6 +36,7 @@ from sales_assistant.infrastructure.mysql.repositories import SqlUnitOfWorkFacto
 from sales_assistant.infrastructure.observability.tracing import build_trace_handler_factory
 from sales_assistant.infrastructure.redis.event_stream import build_run_event_stream
 from sales_assistant.infrastructure.redis.lease import build_lease_manager
+from sales_assistant.infrastructure.skills import build_skill_library
 from sales_assistant.settings import Settings, get_settings
 
 
@@ -83,8 +84,9 @@ def build_container(settings: Settings) -> Container:
     unit_of_work_factory = SqlUnitOfWorkFactory(database.session_factory)
     checkpointer = MySQLCheckpointSaver(database.session_factory)
     trace_handler_factory = build_trace_handler_factory(settings)
+    skill_library = build_skill_library()
     agent_runtime = AgentRuntime(
-        model_gateway, retrieval_service, checkpointer, trace_handler_factory
+        model_gateway, retrieval_service, checkpointer, trace_handler_factory, skill_library
     )
     memory_service = MemoryService(
         unit_of_work_factory,

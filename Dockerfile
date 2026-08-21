@@ -15,6 +15,7 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY alembic.ini ./
 COPY migrations ./migrations
+COPY skills ./skills
 
 RUN uv sync --frozen --no-dev --no-cache \
     && groupadd --system --gid 10001 app \

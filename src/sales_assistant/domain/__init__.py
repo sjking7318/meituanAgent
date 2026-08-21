@@ -10,6 +10,7 @@ from sales_assistant.domain.entities import (
     ConversationStatus,
     ConversationSummary,
     Evidence,
+    LoadedSkill,
     Message,
     MessageRole,
     ModelRequest,
@@ -18,6 +19,7 @@ from sales_assistant.domain.entities import (
     RecallSource,
     RetrievalFilters,
     RunStatus,
+    SkillManifest,
     StoredRunEvent,
     utc_now,
 )
@@ -32,6 +34,7 @@ from sales_assistant.domain.errors import (
     InvalidStateTransitionError,
     ResourceForbiddenError,
     ResourceNotFoundError,
+    SkillError,
 )
 from sales_assistant.domain.ports import (
     ConversationLease,
@@ -46,6 +49,7 @@ from sales_assistant.domain.ports import (
     Retriever,
     RunEventStream,
     RunRepository,
+    SkillLibrary,
     UnitOfWork,
     UnitOfWorkFactory,
 )
@@ -74,6 +78,7 @@ __all__ = [
     "InvalidStateTransitionError",
     "KnowledgeIndexer",
     "LeaseManager",
+    "LoadedSkill",
     "Message",
     "MessageRepository",
     "MessageRole",
@@ -90,6 +95,9 @@ __all__ = [
     "RunEventStream",
     "RunRepository",
     "RunStatus",
+    "SkillError",
+    "SkillLibrary",
+    "SkillManifest",
     "StoredRunEvent",
     "UnitOfWork",
     "UnitOfWorkFactory",

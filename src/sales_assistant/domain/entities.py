@@ -253,3 +253,31 @@ class ChunkView:
     title: str | None = None
     section_path: str | None = None
     page: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SkillManifest:
+    """Level-1 skill metadata: the cheap, always-loaded catalog entry.
+
+    Only ``name`` + ``description`` are surfaced to the model at startup so a
+    large skill library costs a few tokens per skill (progressive disclosure).
+    The body (instructions) and resources are loaded on demand.
+    """
+
+    name: str
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
+class LoadedSkill:
+    """Level-2 skill payload: the SKILL.md body loaded only when a skill matches.
+
+    ``instructions`` is the Markdown body (operating procedure for the model).
+    ``resources`` lists relative paths the body may reference; their contents
+    are level-3 and read individually only when actually needed.
+    """
+
+    name: str
+    description: str
+    instructions: str
+    resources: tuple[str, ...] = ()

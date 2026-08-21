@@ -99,6 +99,9 @@ infrastructure (mysql / milvus / redis / model_gateway / observability)  ← 适
 - `model_gateway/embeddings.py` — `DashScopeEmbedder/DashScopeReranker`（**原生 API，非 OpenAI 兼容**）+ Mock。
 - `redis/lease.py` — 租约 + fencing token；`redis/event_stream.py` — SSE 事件流。
 - `observability/tracing.py` — Langfuse callback 工厂（可开关，缺 SDK/key 自动 no-op）。
+- `skills/library.py` — `FileSystemSkillLibrary`（渐进式披露：catalog/load/read_resource）；
+  `skills/__init__.py` — `build_skill_library()` 工厂。SkillLibrary 端口在 `domain/ports.py`，
+  技能内容目录在**仓库根 `skills/`**（不是这个 python 包）。
 
 ### 其它
 - `main.py` — `build_container()` 依赖注入 + `create_app()`（挂载 `web/` 静态页 + CORS）。
@@ -175,15 +178,24 @@ make dev                                                      # 重启应用
   单 Worker 知识问答。
 - M2 文档摄入（Parent-Child 切分）+ Milvus 双路召回 + RRF + DashScope rerank +
   证据门禁 + 编号引用 + 文档生命周期 API。
-- M3 Supervisor 多 Agent 路由（knowledge_qa/chitchat/clarify）+ 人格隔离。
+- M3 Supervisor 多 Agent 路由（knowledge_qa/chitchat/skill/clarify）+ 人格隔离。
 - 会话记忆（滑动窗口 + 版本化滚动摘要，内联触发）。
 - 全链路追踪（Langfuse，节点级 span 树）。
 - 知识库治理：查看分片接口 + 前端分片浏览；引用带标题（修了 title 恒 None 的 bug）。
+- **Skills（渐进式披露，Claude-Code 风格）**：`SkillLibrary` 端口 +
+  `FileSystemSkillLibrary`（三级加载：level-1 catalog 只出 name+description 常驻上下文；
+  level-2 `load()` 按需读 `SKILL.md` 正文；level-3 `read_resource()` 按需读引用文件，
+  带路径穿越防护）。技能内容在仓库根 `skills/<name>/SKILL.md`（示例：visit-planning、
+  visit-analysis）。Supervisor 注入 level-1 catalog 让模型选技能，命中则路由到 `skill`
+  worker 加载正文作为操作指令执行。代码在 `infrastructure/skills/`。
 
 ### ❌ 未做（按优先级）
 - **M4 剩余**：Agentic Planner（sub-question DAG）、HyDE、反思/Verifier、
   长期记忆（提取/分类/去重/冲突/检索）、上下文 token 预算裁剪。
   设计见 `specs/memory-design.md`、`specs/rag-design.md`、`specs/agent-design.md`。
+- **其余业务 Worker**：Business Data / Merchant Analyst / Sales Coach / Intent Analyst
+  等 Worker 及其外部只读 Tool Adapter 尚未实现。新增技能只需在 `skills/` 下加一个
+  `<name>/SKILL.md`（frontmatter + 正文），无需改代码即被 catalog 发现。
 - **记忆异步化**：当前摘要是**内联**触发（`memory_service.maybe_summarize`）。设计目标
   是 Kafka 事件 + Memory Worker 异步（`workers/main.py` 现在是空占位）。
 - **M5 全部**：知识回流 pipeline（LLM-as-a-Judge）、评测 Golden Set、Outbox/Inbox +

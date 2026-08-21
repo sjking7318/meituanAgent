@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -11,7 +12,14 @@ from langgraph.graph import END, START, StateGraph
 from sales_assistant.agents.runtime.state import RunState, initial_state
 from sales_assistant.application.conversation_service import AgentOutcome
 from sales_assistant.application.retrieval_service import RetrievalService
-from sales_assistant.domain import Evidence, MessageRole, ModelGateway, ModelRequest, ModelTurn
+from sales_assistant.domain import (
+    Evidence,
+    MessageRole,
+    ModelGateway,
+    ModelRequest,
+    ModelTurn,
+    SkillLibrary,
+)
 from sales_assistant.infrastructure.observability.tracing import TraceHandlerFactory
 
 logger = structlog.get_logger()
@@ -21,16 +29,17 @@ _NIL_UUID = UUID(int=0)
 # Fixed, versioned worker prompt. Rebuilt from template every invocation so no
 # persona leaks across workers or turns (agent-design.md 6/7).
 _SUPERVISOR_SYSTEM_PROMPT = """\
-你是意图识别分析师。将用户输入归类为且仅归类为以下标签之一：
-- knowledge_qa：与销售/产品/政策/商家/业务数据相关的问题，需要知识或数据支撑。
-- chitchat：问候、寒暄、与业务无关的闲聊。
-- clarify：意图不明、信息不足、无法判断用户到底想问什么。
+你是意图与技能路由分析师。根据用户输入和“可用技能清单”，只输出一个标签：
+- 若某个技能明显适用，输出 `skill:<技能名>`（技能名取自清单）。
+- 否则从以下两个中选一个：chitchat（寒暄闲聊，或对之前对话内容的追问/回忆，
+  如“你还记得我说过什么”）、knowledge_qa（其余所有需要知识、数据或业务支撑的问题，
+  默认归此类）。
 只输出标签本身，不要输出其他任何内容。
 """
 
 _CHITCHAT_SYSTEM_PROMPT = """\
-你是友好的销售助手。用简洁、礼貌的中文进行日常寒暄回复，
-不要编造任何业务、产品或数据信息。
+你是友好的销售助手。用简洁、礼貌的中文进行日常寒暄回复，或根据上文对话回答用户
+对先前内容的追问（如复述用户之前提到的信息）。不要编造任何业务、产品或数据信息。
 """
 
 _CLARIFY_ANSWER = (
@@ -39,6 +48,20 @@ _CLARIFY_ANSWER = (
 )
 
 _CHITCHAT_KEYWORDS = ("你好", "在吗", "谢谢", "hi", "hello", "早上好", "晚上好", "再见")
+
+# Cheap keyword hints per skill for the deterministic fallback (keeps Mock-backed
+# tests stable when the model does not return a usable label).
+_SKILL_HINTS: dict[str, tuple[str, ...]] = {
+    "visit-planning": ("拜访计划", "拜访规划", "拜访方案", "制定拜访", "拜访安排"),
+    "visit-analysis": ("拜访历史", "拜访记录", "复盘拜访", "拜访情况", "拜访趋势"),
+}
+
+
+def _heuristic_skill(query: str, available: set[str]) -> str | None:
+    for name, hints in _SKILL_HINTS.items():
+        if name in available and any(h in query for h in hints):
+            return name
+    return None
 
 
 def _heuristic_intent(query: str) -> str:
@@ -102,10 +125,12 @@ class AgentRuntime:
         retrieval_service: RetrievalService,
         checkpointer: BaseCheckpointSaver[str],
         trace_handler_factory: TraceHandlerFactory | None = None,
+        skill_library: SkillLibrary | None = None,
     ) -> None:
         self._model_gateway = model_gateway
         self._retrieval = retrieval_service
         self._trace_handler_factory = trace_handler_factory
+        self._skill_library = skill_library
         self._graph = self._build().compile(checkpointer=checkpointer)
 
     def _build(self) -> StateGraph:
@@ -114,6 +139,7 @@ class AgentRuntime:
         graph.add_node("retrieve", self._retrieve)
         graph.add_node("knowledge_qa", self._knowledge_qa)
         graph.add_node("chitchat", self._chitchat)
+        graph.add_node("skill", self._skill)
         graph.add_node("clarify", self._clarify)
         graph.add_node("synthesize", self._synthesize)
         graph.add_edge(START, "supervisor")
@@ -123,54 +149,78 @@ class AgentRuntime:
             {
                 "knowledge_qa": "retrieve",
                 "chitchat": "chitchat",
+                "skill": "skill",
                 "clarify": "clarify",
             },
         )
         graph.add_edge("retrieve", "knowledge_qa")
         graph.add_edge("knowledge_qa", "synthesize")
         graph.add_edge("chitchat", "synthesize")
+        graph.add_edge("skill", "synthesize")
         graph.add_edge("clarify", "synthesize")
         graph.add_edge("synthesize", END)
         return graph
 
+    def _skill_names(self) -> set[str]:
+        # Level-1: cheap catalog lookup (name + description only).
+        if self._skill_library is None:
+            return set()
+        return {m.name for m in self._skill_library.catalog()}
+
     async def _supervise(self, state: RunState) -> RunState:
         # Intent Analyst persona lives only inside this node's context; the
         # label is validated and never leaks into worker prompts (agent-design 6).
-        intent = await self._classify_intent(state["user_query"])
-        return RunState(
-            route={"primary_worker": intent, "strategy": "supervised"},
-            standalone_query=state["user_query"],
-        )
+        route = await self._classify(state["user_query"])
+        return RunState(route=route, standalone_query=state["user_query"])
 
     def _route(self, state: RunState) -> str:
         route = state.get("route") or {}
+        if route.get("skill"):
+            return "skill"
         worker = route.get("primary_worker", "knowledge_qa")
         return worker if worker in {"knowledge_qa", "chitchat", "clarify"} else "knowledge_qa"
 
-    async def _classify_intent(self, query: str) -> str:
-        """Classify user intent into a fixed label set.
+    async def _classify(self, query: str) -> dict[str, Any]:
+        """Route to a skill (progressive disclosure) or a base intent.
 
-        Uses the LLM as a virtual intent analyst, then validates the answer
-        against the allowed labels. Falls back to a deterministic heuristic when
-        the model output is unusable (also keeps Mock-backed tests stable).
+        The level-1 skill catalog (name + description only) is injected into the
+        classifier prompt so the model can pick a skill without ever loading its
+        body. Falls back to a deterministic heuristic when the model output is
+        unusable (also keeps Mock-backed tests stable).
         """
+        available = self._skill_names()
+        # Deterministic guard: a near-empty query is clarify regardless of the
+        # model (the classifier is unreliable on 0-2 char inputs).
+        if len(query.strip()) <= 2:
+            return {"primary_worker": "clarify", "strategy": "heuristic"}
+        catalog_text = ""
+        if self._skill_library is not None:
+            lines = [f"- {m.name}: {m.description}" for m in self._skill_library.catalog()]
+            catalog_text = "可用技能清单：\n" + "\n".join(lines) + "\n\n" if lines else ""
         try:
             response = await self._model_gateway.generate(
                 ModelRequest(
                     system_prompt=_SUPERVISOR_SYSTEM_PROMPT,
-                    user_prompt=f"用户输入：{query}\n只输出一个标签。",
+                    user_prompt=f"{catalog_text}用户输入：{query}\n只输出一个标签。",
                     conversation_id=_NIL_UUID,
                     run_id=_NIL_UUID,
                     history=(),
                 )
             )
             label = response.content.strip().lower()
+            if label.startswith("skill:"):
+                skill = label.split(":", 1)[1].strip()
+                if skill in available:
+                    return {"skill": skill, "strategy": "supervised"}
             for candidate in ("knowledge_qa", "chitchat", "clarify"):
                 if candidate in label:
-                    return candidate
+                    return {"primary_worker": candidate, "strategy": "supervised"}
         except Exception:  # classification must never break the run
             logger.warning("intent_classification_failed_fallback_heuristic")
-        return _heuristic_intent(query)
+        matched = _heuristic_skill(query, available)
+        if matched is not None:
+            return {"skill": matched, "strategy": "heuristic"}
+        return {"primary_worker": _heuristic_intent(query), "strategy": "heuristic"}
 
     async def _chitchat(self, state: RunState, config: RunnableConfig) -> RunState:
         # History-aware so multi-turn casual context (names, prior facts) carries
@@ -197,6 +247,47 @@ class AgentRuntime:
         return RunState(
             answer=_CLARIFY_ANSWER,
             model="clarify",
+            citations=[],
+        )
+
+    async def _skill(self, state: RunState, config: RunnableConfig) -> RunState:
+        # Level-2: load the matched skill's SKILL.md body on demand and use it as
+        # the worker's operating instructions. The body may reference level-3
+        # resources; those are read by the model only if it asks (not eagerly).
+        route = state.get("route") or {}
+        skill_name = str(route.get("skill") or "")
+        if self._skill_library is None or not skill_name:
+            return RunState(answer=_CLARIFY_ANSWER, model="clarify", citations=[])
+        try:
+            loaded = self._skill_library.load(skill_name)
+        except Exception:
+            logger.warning("skill_load_failed", skill=skill_name)
+            return RunState(answer=_CLARIFY_ANSWER, model="clarify", citations=[])
+
+        resources_note = ""
+        if loaded.resources:
+            resources_note = (
+                "\n\n可按需引用的资源文件（仅在需要时参考其内容）："
+                + "、".join(loaded.resources)
+            )
+        system_prompt = (
+            f"你正在执行技能「{loaded.name}」。严格遵循以下操作说明：\n\n"
+            f"{loaded.instructions}{resources_note}"
+        )
+        response = await self._model_gateway.generate(
+            ModelRequest(
+                system_prompt=system_prompt,
+                user_prompt=state["user_query"],
+                conversation_id=UUID(state["conversation_id"]),
+                run_id=UUID(state["run_id"]),
+                history=_history_from_config(config),
+            )
+        )
+        return RunState(
+            answer=response.content,
+            model=response.model,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
             citations=[],
         )
 
