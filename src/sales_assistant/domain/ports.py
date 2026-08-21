@@ -13,10 +13,12 @@ from sales_assistant.domain.entities import (
     ChunkView,
     Conversation,
     ConversationSummary,
+    LoadedSkill,
     Message,
     ModelRequest,
     ModelResponse,
     RetrievalFilters,
+    SkillManifest,
     StoredRunEvent,
 )
 
@@ -100,6 +102,23 @@ class KnowledgeIndexer(Protocol):
     async def health_check(self) -> None: ...
 
     async def close(self) -> None: ...
+
+
+class SkillLibrary(Protocol):
+    """Progressive-disclosure skill store (Claude-Code-style).
+
+    ``catalog`` returns only level-1 metadata (name + description) for every
+    skill — cheap enough to keep in the model context permanently. ``load``
+    reads a single skill's level-2 body (SKILL.md instructions) on demand.
+    ``read_resource`` reads a level-3 file referenced by the body, only when
+    the model actually needs it.
+    """
+
+    def catalog(self) -> list[SkillManifest]: ...
+
+    def load(self, name: str) -> LoadedSkill: ...
+
+    def read_resource(self, name: str, resource: str) -> str: ...
 
 
 class ConversationLease(Protocol):

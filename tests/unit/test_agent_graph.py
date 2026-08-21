@@ -15,13 +15,16 @@ from sales_assistant.application.retrieval_service import RetrievalConfig, Retri
 from sales_assistant.infrastructure.milvus.memory import IndexedChunk, InMemoryRetriever
 from sales_assistant.infrastructure.model_gateway.embeddings import MockEmbedder, MockReranker
 from sales_assistant.infrastructure.model_gateway.gateway import MockModelGateway
+from sales_assistant.infrastructure.skills import build_skill_library
 
 pytestmark = pytest.mark.asyncio
 
 
 def _runtime(retriever: InMemoryRetriever) -> AgentRuntime:
     service = RetrievalService(retriever, MockEmbedder(), MockReranker(), RetrievalConfig())
-    return AgentRuntime(MockModelGateway(), service, InMemorySaver())
+    gateway = MockModelGateway()
+    library = build_skill_library()
+    return AgentRuntime(gateway, service, InMemorySaver(), None, library)
 
 
 async def test_graph_abstains_without_evidence() -> None:
@@ -90,3 +93,21 @@ async def test_heuristic_intent_labels() -> None:
     assert _heuristic_intent("") == "clarify"
     assert _heuristic_intent("啊") == "clarify"
     assert _heuristic_intent("新商家首月的佣金政策是什么") == "knowledge_qa"
+
+
+async def test_graph_routes_to_skill_worker() -> None:
+    # Progressive disclosure: the visit-planning keyword matches a skill in the
+    # catalog, so routing goes to the skill worker which loads SKILL.md (level-2)
+    # and runs the model with it as instructions.
+    runtime = _runtime(InMemoryRetriever())
+    outcome = await runtime.run(
+        run_id=uuid4(),
+        tenant_id=uuid4(),
+        user_id=uuid4(),
+        conversation_id=uuid4(),
+        user_query="帮我为某餐饮商家制定一个拜访计划",
+    )
+    # Mock gateway answers the skill prompt (not the clarify/abstain constants).
+    assert outcome.model == "mock-synth"
+    assert outcome.answer not in {_ABSTAIN_ANSWER, _CLARIFY_ANSWER}
+    assert outcome.citations == []

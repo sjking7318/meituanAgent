@@ -39,3 +39,9 @@ class FeatureNotImplementedError(DomainError):
 
 class InvalidStateTransitionError(DomainError):
     code = "INVALID_STATE_TRANSITION"
+
+
+class SkillError(DomainError):
+    """A Skill/Tool failed validation, timed out, or was not found."""
+
+    code = "SKILL_ERROR"

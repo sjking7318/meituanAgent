@@ -25,6 +25,7 @@ from sales_assistant.infrastructure.mysql.database import Database
 from sales_assistant.infrastructure.mysql.repositories import SqlUnitOfWorkFactory
 from sales_assistant.infrastructure.redis.event_stream import InMemoryRunEventStream
 from sales_assistant.infrastructure.redis.lease import InMemoryLeaseManager
+from sales_assistant.infrastructure.skills import build_skill_library
 from sales_assistant.main import Container
 from sales_assistant.settings import AppEnvironment, Settings
 
@@ -61,7 +62,10 @@ async def container(settings: Settings, database: Database) -> AsyncIterator[Con
     indexer = InMemoryKnowledgeIndexer(retriever)
     embedder = MockEmbedder()
     retrieval_service = RetrievalService(retriever, embedder, MockReranker(), RetrievalConfig())
-    agent_runtime = AgentRuntime(model_gateway, retrieval_service, InMemorySaver())
+    skill_library = build_skill_library()
+    agent_runtime = AgentRuntime(
+        model_gateway, retrieval_service, InMemorySaver(), None, skill_library
+    )
     uow_factory = SqlUnitOfWorkFactory(database.session_factory)
     memory_service = MemoryService(
         uow_factory,
