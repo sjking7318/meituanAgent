@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen --all-extras
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run pytest --cov=sales_assistant --cov-report=term-missing --cov-report=xml
+      - name: Verify migrations
+        run: |
+          DATABASE_URL=sqlite+aiosqlite:////tmp/migration.db APP_ENV=test uv run alembic upgrade head
+          DATABASE_URL=sqlite+aiosqlite:////tmp/migration.db APP_ENV=test uv run alembic downgrade base
+      - name: Audit Python dependencies
+        run: uvx pip-audit
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: azure/setup-helm@v4
+      - run: docker compose config --quiet
+      - run: helm lint deploy/helm/sales-assistant
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: sales-assistant:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: aquasecurity/trivy-action@0.32.0
+        with:
+          image-ref: sales-assistant:test
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH

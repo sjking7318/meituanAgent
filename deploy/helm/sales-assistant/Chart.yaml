@@ -1,0 +1,6 @@
+apiVersion: v2
+name: sales-assistant
+description: Multi-instance sales intelligence assistant backend
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,106 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "meituan-sales-assistant"
+version = "0.2.0"
+description = "Industrial multi-agent sales intelligence assistant backend (MySQL + Milvus + Kafka + Redis)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "alembic>=1.14,<2",
+  "asyncmy>=0.2.9,<0.3",
+  "cryptography>=44,<46",
+  "fastapi>=0.115,<1",
+  "httpx>=0.28,<1",
+  "langgraph>=0.2.60,<0.3",
+  "langgraph-checkpoint>=2,<3",
+  "opentelemetry-api>=1.29,<2",
+  "opentelemetry-exporter-otlp>=1.29,<2",
+  "opentelemetry-instrumentation-fastapi>=0.50b0,<1",
+  "opentelemetry-sdk>=1.29,<2",
+  "prometheus-client>=0.21,<1",
+  "pydantic>=2.10,<3",
+  "pydantic-settings>=2.7,<3",
+  "pyjwt[crypto]>=2.10,<3",
+  "redis[hiredis]>=5.2,<7",
+  "sqlalchemy[asyncio]>=2.0.36,<3",
+  "structlog>=24.4,<26",
+  "tenacity>=9,<10",
+  "uuid7>=0.1,<1",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+retrieval = [
+  "pymilvus>=2.5,<2.6",
+]
+messaging = [
+  "aiokafka>=0.12,<0.13",
+]
+tracing = [
+  "langfuse>=2.50,<3",
+  "langchain>=0.3,<0.4",
+]
+dev = [
+  "aiosqlite>=0.20,<1",
+  "mypy>=1.14,<2",
+  "pre-commit>=4,<5",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.25,<1",
+  "pytest-cov>=6,<7",
+  "ruff>=0.9,<1",
+]
+
+[project.scripts]
+sales-assistant = "sales_assistant.main:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sales_assistant"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --strict-config -ra"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "integration: tests that require live infrastructure (MySQL/Redis/Milvus/Kafka)",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["sales_assistant"]
+
+[tool.coverage.report]
+fail_under = 75
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+]
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+  "A", "ASYNC", "B", "C4", "E", "F", "I", "N", "PERF", "PIE", "RUF", "S", "SIM", "UP", "W",
+]
+ignore = ["RUF001", "S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/**/*.py" = ["E501", "N999"]
+"tests/**/*.py" = ["S106"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src", "tests"]
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["opentelemetry.*", "asyncmy.*", "pymilvus.*", "aiokafka.*", "uuid_extensions.*", "langfuse.*"]
+ignore_missing_imports = true

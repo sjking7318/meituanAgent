@@ -1,0 +1,16 @@
+.DS_Store
+.env
+.git
+.github
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.venv
+__pycache__
+*.py[cod]
+.coverage
+coverage.xml
+htmlcov
+tests
+specs
+deploy

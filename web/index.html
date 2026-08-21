@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>美团销售智能助手</title>
+  <style>
+    :root {
+      --brand: #ffc300;
+      --brand-dark: #f5a623;
+      --bg: #f4f5f7;
+      --panel: #ffffff;
+      --text: #1f2329;
+      --muted: #8a919e;
+      --border: #e6e8eb;
+      --user: #ffe9a8;
+      --assistant: #f2f4f7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: var(--brand);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+    header h1 { font-size: 18px; margin: 0; }
+    header .env { font-size: 12px; color: #7a5a00; margin-left: auto; }
+    .tabs { display: flex; gap: 4px; background: var(--panel); padding: 0 20px; border-bottom: 1px solid var(--border); }
+    .tab {
+      padding: 12px 18px; cursor: pointer; border: none; background: none;
+      font-size: 14px; color: var(--muted); border-bottom: 2px solid transparent;
+    }
+    .tab.active { color: var(--text); border-bottom-color: var(--brand-dark); font-weight: 600; }
+    main { flex: 1; overflow: hidden; display: flex; }
+    .view { flex: 1; display: none; flex-direction: column; overflow: hidden; }
+    .view.active { display: flex; }
+
+    /* Chat */
+    #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+    .msg { max-width: 76%; padding: 10px 14px; border-radius: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+    .msg.user { align-self: flex-end; background: var(--user); }
+    .msg.assistant { align-self: flex-start; background: var(--assistant); }
+    .msg .role { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .citations { margin-top: 8px; font-size: 12px; color: var(--muted); border-top: 1px dashed var(--border); padding-top: 6px; }
+    .citations b { color: var(--brand-dark); }
+    .composer { display: flex; gap: 10px; padding: 14px 20px; background: var(--panel); border-top: 1px solid var(--border); }
+    .composer textarea {
+      flex: 1; resize: none; height: 46px; padding: 12px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 14px; font-family: inherit;
+    }
+    button.primary {
+      background: var(--brand); border: none; border-radius: 8px; padding: 0 22px;
+      font-size: 14px; font-weight: 600; cursor: pointer; color: #6b4e00;
+    }
+    button.primary:disabled { opacity: .5; cursor: not-allowed; }
+    .conv-bar { padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+    .conv-bar button { font-size: 12px; padding: 4px 10px; border: 1px solid var(--border); background: #fff; border-radius: 6px; cursor: pointer; }
+
+    /* Knowledge */
+    .kb-wrap { flex: 1; overflow-y: auto; padding: 20px; display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+    .card h3 { margin: 0 0 12px; font-size: 15px; }
+    .card label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+    .card input, .card textarea {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 13px; font-family: inherit;
+    }
+    .card textarea { resize: vertical; min-height: 120px; }
+    .card button { margin-top: 12px; width: 100%; }
+    .kb-list { list-style: none; margin: 0; padding: 0; }
+    .kb-list li {
+      padding: 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px;
+      cursor: pointer; font-size: 13px;
+    }
+    .kb-list li.selected { border-color: var(--brand-dark); background: #fffbe9; }
+    .kb-list li .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .doc-item { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .doc-head { cursor: pointer; display: flex; align-items: center; gap: 8px; }
+    .doc-head:hover { color: var(--brand-dark); }
+    .doc-detail { margin: 6px 0 0 8px; }
+    .ver-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); padding: 4px 0; gap: 8px; }
+    .link-btn { border: 1px solid var(--border); background: #fff; border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; }
+    .link-btn:hover { border-color: var(--brand-dark); }
+    .chunk-box { margin: 4px 0 8px 8px; }
+    .chunk { border-left: 3px solid var(--brand); background: #fafbfc; padding: 6px 10px; margin: 6px 0; border-radius: 0 6px 6px 0; }
+    .chunk-meta { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .chunk-meta code { background: #eef0f3; padding: 1px 4px; border-radius: 3px; }
+    .chunk-text { font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; background: #e6f4ea; color: #1a7f37; }
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: #1f2329; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px;
+      opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 10;
+    }
+    .toast.show { opacity: .95; }
+    .empty { color: var(--muted); font-size: 13px; text-align: center; margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🟡 美团销售智能助手</h1>
+    <span class="env">Agentic RAG · 多 Agent 路由 · 会话记忆</span>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-view="chat">对话</button>
+    <button class="tab" data-view="knowledge">知识库</button>
+  </div>
+
+  <main>
+    <!-- Chat view -->
+    <section class="view active" id="view-chat">
+      <div class="conv-bar">
+        <span id="conv-label">未创建会话</span>
+        <button id="new-conv">＋ 新会话</button>
+      </div>
+      <div id="messages">
+        <div class="empty">发送第一条消息开始对话。试试问「新商家首月的佣金政策是什么？」，或者打个招呼～</div>
+      </div>
+      <div class="composer">
+        <textarea id="input" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+        <button class="primary" id="send">发送</button>
+      </div>
+    </section>
+
+    <!-- Knowledge view -->
+    <section class="view" id="view-knowledge">
+      <div class="kb-wrap">
+        <div>
+          <div class="card">
+            <h3>知识库</h3>
+            <label>新建知识库名称</label>
+            <input id="kb-name" placeholder="如：销售政策库" />
+            <button class="primary" id="create-kb">创建知识库</button>
+          </div>
+          <div class="card" style="margin-top:16px;">
+            <h3>已有知识库</h3>
+            <ul class="kb-list" id="kb-list"></ul>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <h3>上传文档 <span id="upload-target" style="font-weight:400;color:var(--muted);font-size:12px;"></span></h3>
+            <label>标题</label>
+            <input id="doc-title" placeholder="如：新商家佣金政策" />
+            <label>内容（Markdown）</label>
+            <textarea id="doc-content" placeholder="# 标题&#10;正文内容..."></textarea>
+            <button class="primary" id="upload-doc" disabled>上传并索引</button>
+          </div>
+          <div class="card" style="margin-top:16px;">
+            <h3>文档列表</h3>
+            <div id="doc-list"><div class="empty">先选择左侧的知识库</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // --- Identity (dev auth): tenant/user UUIDs persisted locally ---
+    const uuid = () => crypto.randomUUID();
+    const store = (k, gen) => { let v = localStorage.getItem(k); if (!v) { v = gen(); localStorage.setItem(k, v); } return v; };
+    const TENANT = store("sa_tenant", uuid);
+    const USER = store("sa_user", uuid);
+    const HEADERS = { "Content-Type": "application/json", "X-Tenant-ID": TENANT, "X-User-ID": USER };
+
+    let conversationId = null;
+    let selectedKb = null;
+
+    const $ = (id) => document.getElementById(id);
+    const toast = (msg) => {
+      const t = $("toast"); t.textContent = msg; t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), 2200);
+    };
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, { headers: HEADERS, ...opts });
+      if (!res.ok) {
+        let detail = res.statusText;
+        try { const j = await res.json(); detail = j.message || j.detail || JSON.stringify(j); } catch (_) {}
+        throw new Error(detail);
+      }
+      return res.status === 204 ? null : res.json();
+    }
+
+    // --- Tabs ---
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.onclick = () => {
+        document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+        document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+        tab.classList.add("active");
+        $("view-" + tab.dataset.view).classList.add("active");
+        if (tab.dataset.view === "knowledge") loadKbs();
+      };
+    });
+
+    // --- Chat ---
+    function addMessage(role, content, citations) {
+      const empty = $("messages").querySelector(".empty");
+      if (empty) empty.remove();
+      const div = document.createElement("div");
+      div.className = "msg " + role;
+      div.innerHTML = `<div class="role">${role === "user" ? "我" : "助手"}</div>`;
+      const body = document.createElement("div");
+      body.textContent = content;
+      div.appendChild(body);
+      if (citations && citations.length) {
+        const c = document.createElement("div");
+        c.className = "citations";
+        c.innerHTML = "引用来源：" + citations.map((x) => {
+          const label = x.title
+            ? (x.section_path ? `${x.title} · ${x.section_path}` : x.title)
+            : (x.section_path || "文档片段");
+          return `<span title="${x.chunk_id || ""}"><b>[${x.marker}]</b> ${label}</span>`;
+        }).join("　");
+        div.appendChild(c);
+      }
+      $("messages").appendChild(div);
+      $("messages").scrollTop = $("messages").scrollHeight;
+      return body;
+    }
+
+    async function ensureConversation() {
+      if (conversationId) return conversationId;
+      const conv = await api("/v1/conversations", {
+        method: "POST", body: JSON.stringify({ title: "Web 会话" }),
+      });
+      conversationId = conv.id;
+      $("conv-label").textContent = "会话 " + conv.id.slice(0, 8) + "…";
+      return conversationId;
+    }
+
+    async function sendMessage() {
+      const input = $("input");
+      const content = input.value.trim();
+      if (!content) return;
+      input.value = "";
+      $("send").disabled = true;
+      addMessage("user", content);
+      const pending = addMessage("assistant", "思考中…");
+      try {
+        const convId = await ensureConversation();
+        const data = await api(`/v1/conversations/${convId}/messages`, {
+          method: "POST",
+          headers: { ...HEADERS, "Idempotency-Key": uuid().replace(/-/g, "") },
+          body: JSON.stringify({ content, stream: false }),
+        });
+        const asst = data.assistant_message;
+        pending.parentElement.remove();
+        if (asst) addMessage("assistant", asst.content, asst.citations);
+        else addMessage("assistant", "（无回复）");
+      } catch (e) {
+        pending.textContent = "❌ " + e.message;
+      } finally {
+        $("send").disabled = false;
+        input.focus();
+      }
+    }
+
+    $("send").onclick = sendMessage;
+    $("input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+    $("new-conv").onclick = () => {
+      conversationId = null;
+      $("conv-label").textContent = "未创建会话";
+      $("messages").innerHTML = '<div class="empty">新会话已就绪，发送消息开始对话。</div>';
+    };
+
+    // --- Knowledge ---
+    async function loadKbs() {
+      try {
+        const kbs = await api("/v1/knowledge/knowledge-bases");
+        const list = $("kb-list");
+        list.innerHTML = kbs.length ? "" : '<div class="empty">还没有知识库</div>';
+        kbs.forEach((kb) => {
+          const li = document.createElement("li");
+          if (kb.id === selectedKb) li.classList.add("selected");
+          li.innerHTML = `${kb.name}<div class="meta">${kb.id.slice(0, 8)}… · ${kb.status}</div>`;
+          li.onclick = () => selectKb(kb);
+          list.appendChild(li);
+        });
+      } catch (e) { toast("加载失败：" + e.message); }
+    }
+
+    async function selectKb(kb) {
+      selectedKb = kb.id;
+      $("upload-target").textContent = "→ " + kb.name;
+      $("upload-doc").disabled = false;
+      document.querySelectorAll("#kb-list li").forEach((li, i) => {});
+      loadKbs();
+      await loadDocs();
+    }
+
+    async function loadDocs() {
+      if (!selectedKb) return;
+      try {
+        const docs = await api(`/v1/knowledge/knowledge-bases/${selectedKb}/documents`);
+        const box = $("doc-list");
+        box.innerHTML = docs.length ? "" : '<div class="empty">该知识库暂无文档</div>';
+        docs.forEach((d) => {
+          const el = document.createElement("div");
+          el.className = "doc-item";
+          el.innerHTML = `<div class="doc-head">${d.title} <span class="badge">${d.status}</span></div>`;
+          const detail = document.createElement("div");
+          detail.className = "doc-detail";
+          el.appendChild(detail);
+          el.querySelector(".doc-head").onclick = () => toggleVersions(d.id, detail);
+          box.appendChild(el);
+        });
+      } catch (e) { toast("加载文档失败：" + e.message); }
+    }
+
+    async function toggleVersions(docId, container) {
+      if (container.dataset.open === "1") {
+        container.innerHTML = ""; container.dataset.open = "0"; return;
+      }
+      container.dataset.open = "1";
+      container.innerHTML = '<div class="meta">加载版本中…</div>';
+      try {
+        const versions = await api(`/v1/knowledge/documents/${docId}/versions`);
+        container.innerHTML = versions.length ? "" : '<div class="meta">无版本</div>';
+        versions.forEach((v) => {
+          const row = document.createElement("div");
+          row.className = "ver-row";
+          row.innerHTML =
+            `<span>v${v.version} · <span class="badge">${v.status}</span> · ${v.chunk_count} 片段 · ${v.embedding_model}</span>` +
+            `<button class="link-btn">查看分片</button>`;
+          const chunkBox = document.createElement("div");
+          chunkBox.className = "chunk-box";
+          row.querySelector(".link-btn").onclick = () => toggleChunks(v.id, chunkBox);
+          container.appendChild(row);
+          container.appendChild(chunkBox);
+        });
+      } catch (e) { container.innerHTML = `<div class="meta">加载失败：${e.message}</div>`; }
+    }
+
+    async function toggleChunks(versionId, box) {
+      if (box.dataset.open === "1") { box.innerHTML = ""; box.dataset.open = "0"; return; }
+      box.dataset.open = "1";
+      box.innerHTML = '<div class="meta">加载分片中…</div>';
+      try {
+        const chunks = await api(`/v1/knowledge/document-versions/${versionId}/chunks`);
+        box.innerHTML = chunks.length ? "" : '<div class="meta">该版本无分片</div>';
+        chunks.forEach((c) => {
+          const el = document.createElement("div");
+          el.className = "chunk";
+          el.innerHTML =
+            `<div class="chunk-meta"><code>${c.chunk_id}</code>` +
+            (c.section_path ? ` · ${c.section_path}` : "") + `</div>` +
+            `<div class="chunk-text"></div>`;
+          el.querySelector(".chunk-text").textContent = c.text;
+          box.appendChild(el);
+        });
+      } catch (e) { box.innerHTML = `<div class="meta">加载失败：${e.message}</div>`; }
+    }
+
+    $("create-kb").onclick = async () => {
+      const name = $("kb-name").value.trim();
+      if (!name) return toast("请输入知识库名称");
+      try {
+        await api("/v1/knowledge/knowledge-bases", {
+          method: "POST", body: JSON.stringify({ name }),
+        });
+        $("kb-name").value = "";
+        toast("知识库已创建");
+        loadKbs();
+      } catch (e) { toast("创建失败：" + e.message); }
+    };
+
+    $("upload-doc").onclick = async () => {
+      if (!selectedKb) return toast("请先选择知识库");
+      const title = $("doc-title").value.trim();
+      const content = $("doc-content").value.trim();
+      if (!title || !content) return toast("请填写标题和内容");
+      const btn = $("upload-doc");
+      btn.disabled = true; btn.textContent = "索引中…";
+      try {
+        const r = await api(`/v1/knowledge/knowledge-bases/${selectedKb}/documents`, {
+          method: "POST",
+          body: JSON.stringify({ title, content, acl_tokens: [TENANT] }),
+        });
+        $("doc-title").value = ""; $("doc-content").value = "";
+        toast(`已索引 ${r.chunk_count} 个片段（${r.status}）`);
+        loadDocs();
+      } catch (e) { toast("上传失败：" + e.message); }
+      finally { btn.disabled = false; btn.textContent = "上传并索引"; }
+    };
+  </script>
+</body>
+</html>
